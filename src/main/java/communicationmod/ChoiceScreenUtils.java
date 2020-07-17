@@ -380,7 +380,7 @@ public class ChoiceScreenUtils {
     public static ArrayList<String> getCardRewardScreenChoices() {
         ArrayList<String> choices = new ArrayList<>();
         for(AbstractCard card : AbstractDungeon.cardRewardScreen.rewardGroup) {
-            choices.add(card.name.toLowerCase());
+            choices.add(SlayTheSpireServer.showCard(card, true, false));
         }
         if(isBowlAvailable()) {
             choices.add("bowl");
@@ -508,7 +508,24 @@ public class ChoiceScreenUtils {
     public static ArrayList<String> getCombatRewardScreenChoices() {
         ArrayList<String> choices = new ArrayList<>();
         for(RewardItem reward : AbstractDungeon.combatRewardScreen.rewards) {
-            choices.add(reward.type.name().toLowerCase());
+	    switch(reward.type) {
+	    case GOLD:
+	    case STOLEN_GOLD:
+		choices.add(reward.goldAmt + "(+" + reward.bonusGold + " bonus) " +
+			    reward.type.name().toLowerCase());
+		break;
+	    case POTION:
+		choices.add("add " + reward.type.name().toLowerCase() +": [" +
+			    reward.potion.name + "] " + SlayTheSpireServer.removeTextFormatting(reward.potion.description));
+		break;
+	    case RELIC:
+		choices.add(reward.type.name().toLowerCase() +": [" +
+			    reward.relic.name + "]  " + SlayTheSpireServer.removeTextFormatting(reward.relic.description));
+		break;
+	    default:
+		choices.add(reward.type.name().toLowerCase());
+	    }
+	    
         }
         return choices;
     }
@@ -521,7 +538,7 @@ public class ChoiceScreenUtils {
     public static ArrayList<String> getBossRewardScreenChoices() {
         ArrayList<String> choices = new ArrayList<>();
         for(AbstractRelic relic : AbstractDungeon.bossRelicScreen.relics) {
-            choices.add(relic.name);
+            choices.add("[" + relic.name + "] " + relic.description);
         }
         return choices;
     }
@@ -576,11 +593,15 @@ public class ChoiceScreenUtils {
             if (item instanceof String) {
                 choices.add((String) item);
             } else if (item instanceof AbstractCard) {
-                choices.add(((AbstractCard) item).name.toLowerCase());
+                choices.add(SlayTheSpireServer.showCard(((AbstractCard) item), true, true));
             } else if (item instanceof StoreRelic) {
-                choices.add(((StoreRelic)item).relic.name);
+		choices.add("relic: [" + ((StoreRelic)item).relic.name + "] " +
+			    SlayTheSpireServer.removeTextFormatting(((StoreRelic)item).relic.description) + "(" +
+			    ((StoreRelic)item).price  + " gold)");
             } else if (item instanceof StorePotion) {
-                choices.add(((StorePotion)item).potion.name);
+                choices.add("add potion: [" + ((StorePotion)item).potion.name + "] " +
+			    SlayTheSpireServer.removeTextFormatting(((StorePotion)item).potion.description) +
+			    "(" + ((StorePotion)item).price  + " gold)");
             }
         }
         return choices;
@@ -613,7 +634,7 @@ public class ChoiceScreenUtils {
         ArrayList<Object> choices = new ArrayList<>();
         ShopScreen screen = AbstractDungeon.shopScreen;
         if(screen.purgeAvailable && AbstractDungeon.player.gold >= ShopScreen.actualPurgeCost) {
-            choices.add("purge");
+            choices.add("purge (" + ShopScreen.actualPurgeCost + " gold)");
         }
         for(AbstractCard card : getShopScreenCards()) {
             if(card.price <= AbstractDungeon.player.gold) {

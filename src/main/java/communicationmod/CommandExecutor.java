@@ -212,7 +212,7 @@ public class CommandExecutor {
         int monster_index = -1;
         if(tokens.length == 3) {
             try {
-                monster_index = Integer.parseInt(tokens[2]);
+                monster_index = Integer.parseInt(tokens[2]) - 1;
             } catch (NumberFormatException e) {
                 throw new InvalidCommandException(tokens, InvalidCommandException.InvalidCommandFormat.INVALID_ARGUMENT, tokens[2]);
             }
@@ -266,7 +266,7 @@ public class CommandExecutor {
             throw new InvalidCommandException(tokens, InvalidCommandException.InvalidCommandFormat.INVALID_ARGUMENT, tokens[1]);
         }
         try {
-            potion_index = Integer.parseInt(tokens[2]);
+            potion_index = Integer.parseInt(tokens[2]) - 1;
         } catch (NumberFormatException e) {
             throw new InvalidCommandException(tokens, InvalidCommandException.InvalidCommandFormat.INVALID_ARGUMENT, tokens[2]);
         }
@@ -291,7 +291,7 @@ public class CommandExecutor {
                 }
                 AbstractMonster target_monster;
                 try {
-                    monster_index = Integer.parseInt(tokens[3]);
+                    monster_index = Integer.parseInt(tokens[3]) - 1;
                 } catch (NumberFormatException e) {
                     throw new InvalidCommandException(tokens, InvalidCommandException.InvalidCommandFormat.INVALID_ARGUMENT, tokens[3]);
                 }
@@ -560,7 +560,7 @@ public class CommandExecutor {
             choice_index = validChoices.indexOf(choice);
         } else {
             try {
-                choice_index = Integer.parseInt(choice);
+                choice_index = Integer.parseInt(choice) - 1;
             } catch (NumberFormatException e) {
                 throw new InvalidCommandException(tokens, InvalidCommandException.InvalidCommandFormat.INVALID_ARGUMENT, choice);
             }
@@ -568,6 +568,16 @@ public class CommandExecutor {
                 throw new InvalidCommandException(tokens, InvalidCommandException.InvalidCommandFormat.OUT_OF_BOUNDS, choice);
             }
         }
+	if(validChoices.get(choice_index).contains("add potion")) {
+	    //Check that we can take a new potion
+	    Boolean full = true;
+	    for(AbstractPotion potion: AbstractDungeon.player.potions) {
+		if(potion instanceof PotionSlot)
+		    full = false;
+	    }
+	    if(full)
+		throw new InvalidCommandException("You first need to discard a potion.");
+	}
         return choice_index;
     }
 

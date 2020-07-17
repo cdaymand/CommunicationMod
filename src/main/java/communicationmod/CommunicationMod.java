@@ -5,6 +5,8 @@ import basemod.interfaces.PostDungeonUpdateSubscriber;
 import basemod.interfaces.PostInitializeSubscriber;
 import basemod.interfaces.PostUpdateSubscriber;
 import basemod.interfaces.PreUpdateSubscriber;
+import basemod.eventUtil.EventUtils;
+import basemod.eventUtil.AddEventParams;
 import com.evacipated.cardcrawl.modthespire.lib.SpireConfig;
 import com.evacipated.cardcrawl.modthespire.lib.SpireInitializer;
 import com.google.gson.Gson;
@@ -12,6 +14,7 @@ import com.megacrit.cardcrawl.core.Settings;
 import com.megacrit.cardcrawl.dungeons.AbstractDungeon;
 import com.megacrit.cardcrawl.helpers.FontHelper;
 import com.megacrit.cardcrawl.helpers.ImageMaster;
+import com.megacrit.cardcrawl.events.shrines.FaceTrader;
 import communicationmod.patches.InputActionPatch;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -25,18 +28,19 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
+import static java.lang.System.exit;
 import static java.lang.Thread.sleep;
 
 @SpireInitializer
 public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSubscriber, PostDungeonUpdateSubscriber, PreUpdateSubscriber {
 
-    private static Process listener;
+    private static Thread server;
     private static StringBuilder inputBuffer = new StringBuilder();
     public static boolean messageReceived = false;
     private static final Logger logger = LogManager.getLogger(CommunicationMod.class.getName());
-    private static Thread writeThread;
-    private static BlockingQueue<String> writeQueue;
-    private static Thread readThread;
+    // private static Thread writeThread;
+    private static BlockingQueue<HashMap<String, Object>> stateQueue;
+    // private static Thread readThread;
     private static BlockingQueue<String> readQueue;
     private static final String MODNAME = "Communication Mod";
     private static final String AUTHOR = "Forgotten Arbiter";
@@ -44,34 +48,25 @@ public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSub
     public static boolean mustSendGameState = false;
 
     private static SpireConfig communicationConfig;
-    private static final String COMMAND_OPTION = "command";
-    private static final String GAME_START_OPTION = "runAtGameStart";
-    private static final String INITIALIZATION_TIMEOUT_OPTION = "maxInitializationTimeout";
-    private static final String DEFAULT_COMMAND = "";
-    private static final long DEFAULT_TIMEOUT = 10L;
+    private static final String IP_OPTION = "IP";
+    private static final String PORT_OPTION = "port";
+    private static final String DEFAULT_IP = "127.0.0.1";
+    private static final Integer DEFAULT_PORT = 8080;
 
     public CommunicationMod(){
         BaseMod.subscribe(this);
 
         try {
             Properties defaults = new Properties();
-            defaults.put(GAME_START_OPTION, Boolean.toString(false));
-            defaults.put(INITIALIZATION_TIMEOUT_OPTION, Long.toString(DEFAULT_TIMEOUT));
+            defaults.put(IP_OPTION, DEFAULT_IP);
+            defaults.put(PORT_OPTION, Integer.toString(DEFAULT_PORT));
             communicationConfig = new SpireConfig("CommunicationMod", "config", defaults);
-            String command = communicationConfig.getString(COMMAND_OPTION);
-            // I want this to always be saved to the file so people can set it more easily.
-            if (command == null) {
-                communicationConfig.setString(COMMAND_OPTION, DEFAULT_COMMAND);
-                communicationConfig.save();
-            }
             communicationConfig.save();
         } catch (IOException e) {
             e.printStackTrace();
         }
 
-        if(getRunOnGameStartOption()) {
-            boolean success = startExternalProcess();
-        }
+	startServer();
     }
 
     public static void initialize() {
@@ -79,11 +74,6 @@ public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSub
     }
 
     public void receivePreUpdate() {
-        if(listener != null && !listener.isAlive() && writeThread != null && writeThread.isAlive()) {
-            logger.info("Child process has died...");
-            writeThread.interrupt();
-            readThread.interrupt();
-        }
         if(messageAvailable()) {
             try {
                 boolean stateChanged = CommandExecutor.executeCommand(readMessage());
@@ -91,17 +81,19 @@ public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSub
                     GameStateListener.registerCommandExecution();
                 }
             } catch (InvalidCommandException e) {
-                HashMap<String, Object> jsonError = new HashMap<>();
-                jsonError.put("error", e.getMessage());
-                jsonError.put("ready_for_command", GameStateListener.isWaitingForCommand());
-                Gson gson = new Gson();
-                sendMessage(gson.toJson(jsonError));
+                HashMap<String, Object> error = new HashMap<>();
+                error.put("error", e.getMessage());
+                error.put("ready_for_command", GameStateListener.isWaitingForCommand());
+                sendState(error);
             }
         }
     }
 
     public void receivePostInitialize() {
         setUpOptionsMenu();
+	BaseMod.addEvent((new AddEventParams.Builder(FaceTrader.ID, FaceTrader.class))
+			 .eventType(EventUtils.EventType.FULL_REPLACE).overrideEvent("Match and Keep!")
+			 .create());
     }
 
     public void receivePostUpdate() {
@@ -126,84 +118,45 @@ public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSub
 
     private void setUpOptionsMenu() {
         ModPanel settingsPanel = new ModPanel();
-        ModLabeledToggleButton gameStartOptionButton = new ModLabeledToggleButton(
-                "Start external process at game launch",
-                350, 550, Settings.CREAM_COLOR, FontHelper.charDescFont,
-                getRunOnGameStartOption(), settingsPanel, modLabel -> {},
-                modToggleButton -> {
-                    if (communicationConfig != null) {
-                        communicationConfig.setBool(GAME_START_OPTION, modToggleButton.enabled);
-                        try {
-                            communicationConfig.save();
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
-                    }
-                });
-        settingsPanel.addUIElement(gameStartOptionButton);
 
-        ModLabel externalCommandLabel = new ModLabel(
+        ModLabel ipLabel = new ModLabel(
                 "", 350, 600, Settings.CREAM_COLOR, FontHelper.charDescFont,
                 settingsPanel, modLabel -> {
-                    modLabel.text = String.format("External Process Command: %s", getSubprocessCommandString());
+                    modLabel.text = String.format("TCP Server IP: %s", getIPString());
                 });
-        settingsPanel.addUIElement(externalCommandLabel);
+        settingsPanel.addUIElement(ipLabel);
 
-        ModButton startProcessButton = new ModButton(
-                350, 650, settingsPanel, modButton -> {
-                    BaseMod.modSettingsUp = false;
-                    startExternalProcess();
-                });
-        settingsPanel.addUIElement(startProcessButton);
-
-        ModLabel startProcessLabel = new ModLabel(
-                "(Re)start external process",
-                475, 700, Settings.CREAM_COLOR, FontHelper.charDescFont,
+	ModLabel portLabel = new ModLabel(
+                "", 350, 650, Settings.CREAM_COLOR, FontHelper.charDescFont,
                 settingsPanel, modLabel -> {
-                    if(listener != null && listener.isAlive()) {
-                        modLabel.text = "Restart external process";
-                    } else {
-                        modLabel.text = "Start external process";
-                    }
+                    modLabel.text = String.format("TCP Server port: %d", getPort());
                 });
-        settingsPanel.addUIElement(startProcessLabel);
-
-        ModButton editProcessButton = new ModButton(
-                850, 650, settingsPanel, modButton -> {});
-        settingsPanel.addUIElement(editProcessButton);
-
-        ModLabel editProcessLabel = new ModLabel(
-                "Set command (not implemented)",
-                975, 700, Settings.CREAM_COLOR, FontHelper.charDescFont,
-                settingsPanel, modLabel -> {});
-        settingsPanel.addUIElement(editProcessLabel);
+        settingsPanel.addUIElement(portLabel);
         BaseMod.registerModBadge(ImageMaster.loadImage("Icon.png"),"Communication Mod", "Forgotten Arbiter", null, settingsPanel);
     }
 
-    private void startCommunicationThreads() {
-        writeQueue = new LinkedBlockingQueue<>();
-        writeThread = new Thread(new DataWriter(writeQueue, listener.getOutputStream()));
-        writeThread.start();
+    private void startServerThread(int port, int backlog, String host) {
+        stateQueue = new LinkedBlockingQueue<>();
         readQueue = new LinkedBlockingQueue<>();
-        readThread = new Thread(new DataReader(readQueue, listener.getInputStream()));
-        readThread.start();
+	server = new Thread(new SlayTheSpireServer(port, backlog, host, stateQueue, readQueue));
+        server.start();
     }
 
     private static void sendGameState() {
-        String state = GameStateConverter.getCommunicationState();
-        sendMessage(state);
+        HashMap<String, Object> state = GameStateConverter.getCommunicationState();
+        sendState(state);
     }
 
     public static void dispose() {
         logger.info("Shutting down child process...");
-        if(listener != null) {
-            listener.destroy();
-        }
+        /* if(server != null) {
+            server.destroy();
+	    }*/
     }
 
-    private static void sendMessage(String message) {
-        if(writeQueue != null && writeThread.isAlive()) {
-            writeQueue.add(message);
+    private static void sendState(HashMap<String, Object> state) {
+        if(stateQueue != null && server.isAlive()) {
+            stateQueue.add(state);
         }
     }
 
@@ -213,98 +166,34 @@ public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSub
 
     private static String readMessage() {
         if(messageAvailable()) {
-            return readQueue.remove();
+	    String message = readQueue.remove();
+	    if(message.equals("exit"))
+		exit(0);
+	    return message;
         } else {
             return null;
         }
     }
 
-    private static String readMessageBlocking() {
-        try {
-            return readQueue.poll(getInitializationTimeoutOption(), TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-            throw new RuntimeException("Interrupted while trying to read message from subprocess.");
-        }
-    }
-
-    private static String[] getSubprocessCommand() {
+    private static String getIPString() {
         if (communicationConfig == null) {
-            return new String[0];
+            return "127.0.0.1";
         }
-        return communicationConfig.getString(COMMAND_OPTION).trim().split("\\s+");
+        return communicationConfig.getString(IP_OPTION).trim();
     }
 
-    private static String getSubprocessCommandString() {
-        if (communicationConfig == null) {
-            return "";
+    private static int getPort() {
+	if (communicationConfig == null) {
+            return 8080;
         }
-        return communicationConfig.getString(COMMAND_OPTION).trim();
+        return communicationConfig.getInt(PORT_OPTION);
     }
 
-    private static boolean getRunOnGameStartOption() {
-        if (communicationConfig == null) {
-            return false;
-        }
-        return communicationConfig.getBool(GAME_START_OPTION);
-    }
-
-    private static long getInitializationTimeoutOption() {
-        if (communicationConfig == null) {
-            return DEFAULT_TIMEOUT;
-        }
-        return (long)communicationConfig.getInt(INITIALIZATION_TIMEOUT_OPTION);
-    }
-
-    private boolean startExternalProcess() {
-        if(readThread != null) {
-            readThread.interrupt();
-        }
-        if(writeThread != null) {
-            writeThread.interrupt();
-        }
-        if(listener != null) {
-            listener.destroy();
-            try {
-                boolean success = listener.waitFor(2, TimeUnit.SECONDS);
-                if (!success) {
-                    listener.destroyForcibly();
-                }
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-                listener.destroyForcibly();
-            }
-        }
-        ProcessBuilder builder = new ProcessBuilder(getSubprocessCommand());
-        File errorLog = new File("communication_mod_errors.log");
-        builder.redirectError(ProcessBuilder.Redirect.appendTo(errorLog));
-        try {
-            listener = builder.start();
-        } catch (IOException e) {
-            logger.error("Could not start external process.");
-            e.printStackTrace();
-        }
-        if(listener != null) {
-            startCommunicationThreads();
-            // We wait for the child process to signal it is ready before we proceed. Note that the game
-            // will hang while this is occurring, and it will time out after a specified waiting time.
-            String message = readMessageBlocking();
-            if(message == null) {
-                // The child process waited too long to respond, so we kill it.
-                readThread.interrupt();
-                writeThread.interrupt();
-                listener.destroy();
-                logger.error("Timed out while waiting for signal from external process.");
-                logger.error("Check communication_mod_errors.log for stderr from the process.");
-                return false;
-            } else {
-                logger.info(String.format("Received message from external process: %s", message));
-                if (GameStateListener.isWaitingForCommand()) {
-                    mustSendGameState = true;
-                }
-                return true;
-            }
-        }
-        return false;
-    }
-
+    private boolean startServer() {
+	startServerThread(getPort(), 10, getIPString());
+	if (GameStateListener.isWaitingForCommand()) {
+	    mustSendGameState = true;
+	}
+	return true;
+    }   
 }

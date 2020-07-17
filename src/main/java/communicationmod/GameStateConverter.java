@@ -47,7 +47,7 @@ public class GameStateConverter {
      * - "game_state" (object): Present if in_game=True, contains the game state object returned by getGameState()
      * @return A string containing the JSON representation of CommunicationMod's status
      */
-    public static String getCommunicationState() {
+    public static HashMap<String, Object> getCommunicationState() {
         HashMap<String, Object> response = new HashMap<>();
         response.put("available_commands", CommandExecutor.getAvailableCommands());
         response.put("ready_for_command", GameStateListener.isWaitingForCommand());
@@ -56,8 +56,7 @@ public class GameStateConverter {
         if(isInGame) {
             response.put("game_state", getGameState());
         }
-        Gson gson = new Gson();
-        return gson.toJson(response);
+        return response;
     }
 
 
@@ -112,26 +111,11 @@ public class GameStateConverter {
         state.put("class", AbstractDungeon.player.chosenClass.name());
         state.put("ascension_level", AbstractDungeon.ascensionLevel);
 
-        ArrayList<Object> relics = new ArrayList<>();
-        for(AbstractRelic relic : AbstractDungeon.player.relics) {
-            relics.add(convertRelicToJson(relic));
-        }
+        state.put("relics", AbstractDungeon.player.relics);
 
-        state.put("relics", relics);
+        state.put("deck", AbstractDungeon.player.masterDeck.group);
 
-        ArrayList<Object> deck = new ArrayList<>();
-        for(AbstractCard card : AbstractDungeon.player.masterDeck.group) {
-            deck.add(convertCardToJson(card));
-        }
-
-        state.put("deck", deck);
-
-        ArrayList<Object> potions = new ArrayList<>();
-        for(AbstractPotion potion : AbstractDungeon.player.potions) {
-            potions.add(convertPotionToJson(potion));
-        }
-
-        state.put("potions", potions);
+        state.put("potions", AbstractDungeon.player.potions);
 
         state.put("map", convertMapToJson());
         if(CommandExecutor.isChooseCommandAvailable()) {
@@ -460,7 +444,7 @@ public class GameStateConverter {
     private static HashMap<String, Object> getScreenState() {
         ChoiceScreenUtils.ChoiceType screenType = ChoiceScreenUtils.getCurrentChoiceType();
         switch (screenType) {
-            case EVENT:
+	    case EVENT:
                 return getEventState();
             case CHEST:
             case REST:
@@ -528,10 +512,10 @@ public class GameStateConverter {
         for(AbstractCard card : AbstractDungeon.player.limbo.group) {
             limbo.add(convertCardToJson(card));
         }
-        state.put("draw_pile", draw_pile);
-        state.put("discard_pile", discard_pile);
-        state.put("exhaust_pile", exhaust_pile);
-        state.put("hand", hand);
+        state.put("draw_pile", AbstractDungeon.player.drawPile.group);
+        state.put("discard_pile", AbstractDungeon.player.discardPile.group);
+        state.put("exhaust_pile", AbstractDungeon.player.exhaustPile.group);
+        state.put("hand", AbstractDungeon.player.hand.group);
         state.put("limbo", limbo);
         if (AbstractDungeon.player.cardInUse != null) {
             state.put("card_in_play", convertCardToJson(AbstractDungeon.player.cardInUse));
@@ -708,7 +692,7 @@ public class GameStateConverter {
         jsonMonster.put("half_dead", monster.halfDead);
         jsonMonster.put("is_gone", monster.isDeadOrEscaped());
         jsonMonster.put("block", monster.currentBlock);
-        jsonMonster.put("powers", convertCreaturePowersToJson(monster));
+        jsonMonster.put("powers", monster.powers);
         return jsonMonster;
     }
 
@@ -729,14 +713,11 @@ public class GameStateConverter {
         HashMap<String, Object> jsonPlayer = new HashMap<>();
         jsonPlayer.put("max_hp", player.maxHealth);
         jsonPlayer.put("current_hp", player.currentHealth);
-        jsonPlayer.put("powers", convertCreaturePowersToJson(player));
+        jsonPlayer.put("powers", player.powers);
         jsonPlayer.put("energy", EnergyPanel.totalCount);
         jsonPlayer.put("block", player.currentBlock);
-        ArrayList<Object> orbs = new ArrayList<>();
-        for(AbstractOrb orb : player.orbs) {
-            orbs.add(convertOrbToJson(orb));
-        }
-        jsonPlayer.put("orbs", orbs);
+        jsonPlayer.put("orbs", player.orbs);
+	jsonPlayer.put("stance", player.stance);
         return jsonPlayer;
     }
 
