@@ -50,17 +50,23 @@ public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSub
     private static SpireConfig communicationConfig;
     private static final String IP_OPTION = "IP";
     private static final String PORT_OPTION = "port";
+    private static final String COLOR_OPTION = "color";
     private static final String DEFAULT_IP = "127.0.0.1";
-    private static final Integer DEFAULT_PORT = 8080;
+    private static final Integer DEFAULT_PORT = 9001;
+    private static final Integer DEFAULT_BACKLOG = 10;
+    private static final Boolean DEFAULT_COLOR = true;
 
     public CommunicationMod(){
         BaseMod.subscribe(this);
 
         try {
-            Properties defaults = new Properties();
-            defaults.put(IP_OPTION, DEFAULT_IP);
-            defaults.put(PORT_OPTION, Integer.toString(DEFAULT_PORT));
-            communicationConfig = new SpireConfig("CommunicationMod", "config", defaults);
+            communicationConfig = new SpireConfig("CommunicationMod", "config");
+	    if(communicationConfig.getString(IP_OPTION) == null)
+		communicationConfig.setString(IP_OPTION, DEFAULT_IP);
+	    if(communicationConfig.getString(PORT_OPTION) == null)
+		communicationConfig.setInt(PORT_OPTION, DEFAULT_PORT);
+	    if(communicationConfig.getString(COLOR_OPTION) == null)
+		communicationConfig.setBool(COLOR_OPTION, DEFAULT_COLOR);
             communicationConfig.save();
         } catch (IOException e) {
             e.printStackTrace();
@@ -120,7 +126,7 @@ public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSub
         ModPanel settingsPanel = new ModPanel();
 
         ModLabel ipLabel = new ModLabel(
-                "", 350, 600, Settings.CREAM_COLOR, FontHelper.charDescFont,
+                "", 350, 700, Settings.CREAM_COLOR, FontHelper.charDescFont,
                 settingsPanel, modLabel -> {
                     modLabel.text = String.format("TCP Server IP: %s", getIPString());
                 });
@@ -132,13 +138,21 @@ public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSub
                     modLabel.text = String.format("TCP Server port: %d", getPort());
                 });
         settingsPanel.addUIElement(portLabel);
+
+	ModLabel colorLabel = new ModLabel(
+                "", 350, 600, Settings.CREAM_COLOR, FontHelper.charDescFont,
+                settingsPanel, modLabel -> {
+                    modLabel.text = String.format("Enable color: %s", getColorOption());
+                });
+        settingsPanel.addUIElement(colorLabel);
+	
         BaseMod.registerModBadge(ImageMaster.loadImage("Icon.png"),"Communication Mod", "Forgotten Arbiter", null, settingsPanel);
     }
 
-    private void startServerThread(int port, int backlog, String host) {
+    private void startServerThread() {
         stateQueue = new LinkedBlockingQueue<>();
         readQueue = new LinkedBlockingQueue<>();
-	server = new Thread(new SlayTheSpireServer(port, backlog, host, stateQueue, readQueue));
+	server = new Thread(new SlayTheSpireServer(getPort(), DEFAULT_BACKLOG, getIPString(), stateQueue, readQueue, getColorOption()));
         server.start();
     }
 
@@ -176,21 +190,26 @@ public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSub
     }
 
     private static String getIPString() {
-        if (communicationConfig == null) {
-            return "127.0.0.1";
-        }
+        if (communicationConfig == null)
+            return DEFAULT_IP;
         return communicationConfig.getString(IP_OPTION).trim();
     }
 
     private static int getPort() {
-	if (communicationConfig == null) {
-            return 8080;
-        }
+	if (communicationConfig == null)
+            return DEFAULT_PORT;
+
         return communicationConfig.getInt(PORT_OPTION);
     }
 
+    private static Boolean getColorOption() {
+	if (communicationConfig == null)
+	    return DEFAULT_COLOR;
+	return communicationConfig.getBool(COLOR_OPTION);
+    }
+
     private boolean startServer() {
-	startServerThread(getPort(), 10, getIPString());
+	startServerThread();
 	if (GameStateListener.isWaitingForCommand()) {
 	    mustSendGameState = true;
 	}

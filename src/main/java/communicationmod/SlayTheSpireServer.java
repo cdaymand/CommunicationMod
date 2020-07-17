@@ -25,6 +25,7 @@ public class  SlayTheSpireServer implements Runnable {
     private String host;
     private BlockingQueue<HashMap<String, Object>> stateQueue;
     private BlockingQueue<String> readQueue;
+    private static Boolean displayColor;
     private HashMap<String, Object> state;
     private ArrayList<String> availableCommands;
     private ArrayList<String> choiceList;
@@ -43,19 +44,24 @@ public class  SlayTheSpireServer implements Runnable {
     public static final String ANSI_WHITE = "\u001B[37m";
 
     public static String colored(String string, String color) {
-	return color + string + ANSI_RESET;
+	if(displayColor)
+	    return color + string + ANSI_RESET;
+	else
+	    return string;
     }
     
     public SlayTheSpireServer(int port,
 			      int backlog,
 			      String host,
 			      BlockingQueue<HashMap<String, Object>> stateQueue,
-			      BlockingQueue<String> readQueue) {
+			      BlockingQueue<String> readQueue,
+			      Boolean displayColor) {
 	this.port = port;
 	this.backlog = backlog;
 	this.host = host;
 	this.stateQueue = stateQueue;
 	this.readQueue = readQueue;
+	this.displayColor = displayColor;
 	this.state = new HashMap<String,Object>();
 	this.availableCommands = new ArrayList<String>();
 	this.choiceList = new ArrayList<String>();
